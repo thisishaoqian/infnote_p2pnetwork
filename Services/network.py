@@ -14,8 +14,9 @@ def get_ip():
     return ip
 
 
+# The backlog parameter indicates how many incoming connections should be queued up
 def create_server_socket(port, backlog=5):
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM )
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(('', port))
     s.listen(backlog)

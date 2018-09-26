@@ -1,12 +1,17 @@
+import traceback
+import time
+
 from Services.network import *
+from Services.commons import *
 from uuid import uuid4
 
 
 class Peer:
 
     # Beginning of Constructor
-    def __init__( self, server_port, max_peers=None, my_id=None, server_host=None):
-        self.debug = 0
+    def __init__(self, server_port, max_peers=None, my_id=None, server_host=None):
+        self.debug = True
+        self.running = False
         self.server_port = int(server_port)
 
         # If not supplied, the max_peers variable will be set up to 0
@@ -32,7 +37,6 @@ class Peer:
         # Hash Table of known peers, in the future manage by an address manager
         self.peers = {}
 
-        self.shutdown = False
     # End of Constructor
 
     def __init_node_id(self):
@@ -40,3 +44,52 @@ class Peer:
 
     def __init_server_host(self):
         self.server_host = get_ip()
+
+    def __debug(self, msg):
+        if self.debug:
+            thread_debug(msg)
+
+    def __display_peer_status(self):
+        print("running: --%r--, server_port: --%d--, server_host: --%s--, node id: --%s--, max_peers: --%d--" %
+              (self.running,
+               self.server_port,
+               self.server_host,
+               self.my_id,
+               self.max_peers))
+
+    def run_server(self):
+        # New socket object used to send and receive data on the connection
+        listening_socket = create_server_socket(self.server_port)
+
+        # Timeout applies to a single call to socket read/write operation, basically each 'recv' call.
+        listening_socket.settimeout(2)
+
+        # running variable is used to shutdown server loop.
+        self.running = True
+
+        self.__debug('Server started: %s (%s:%d)'
+                     % (self.my_id, self.server_host, self.server_port))
+
+        while self.running:
+            if self.debug:
+                self.__display_peer_status()
+                time.sleep(1)  # Delays for n seconds for debug
+            try:
+                self.__debug('Listening for Connections...')
+            except KeyboardInterrupt:
+                print("Keyboard interruption - Stopping Server loop")
+                self.running = False
+                continue
+            except:
+                if self.debug:
+                    traceback.print_exc()
+                    continue
+        # end while loop
+
+        self.__debug('Server loop exiting')
+        listening_socket.close()
+    # end server run method
+
+
+peer = Peer(80, 5)
+peer.run_server()
