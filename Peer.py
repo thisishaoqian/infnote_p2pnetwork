@@ -76,6 +76,16 @@ class Peer:
                 time.sleep(1)  # Delays for n seconds for debug
             try:
                 self.__debug('Listening for Connections...')
+                # accept return a new socket object usable to send and receive data on the connection
+                # And return an address which is the address bound to the socket on the other end of the connection.
+                client_sock, client_addr = listening_socket.accept()
+                client_sock.settimeout(None)
+
+                # Handle incoming connection by creating a new thread. Thread is close when the handler finish the task
+                # handle_peer will dispatch the tasks depending on the request type
+                th = threading.Thread(target=self.__handle_peer, args=[client_sock])
+                th.start()
+
             except KeyboardInterrupt:
                 print("Keyboard interruption - Stopping Server loop")
                 self.running = False
