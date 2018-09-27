@@ -1,6 +1,6 @@
 # infnote_p2pnetwork 
 
-###Peer Discovery:
+### Peer Discovery:
 First time the program is run, several possibilities:
 * Manual entry (Console or QR Code) : -addnode and -connect
 * DNS request / seeding, use when data base file is empty (see below)
@@ -17,7 +17,7 @@ Can be a relay: Send last n peers (Sort by timestamp to get the active nodes)
 Advertise their own address periodically to the connected nodes.
 When a connection is made
 
-###Protocole
+### Protocole
 
 Every Request will contain a 'type' to define the exact type of request
 Session Management:
