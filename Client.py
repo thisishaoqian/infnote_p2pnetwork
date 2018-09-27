@@ -9,22 +9,26 @@ class Client:
         self.address='ws://' +host+':'+port
 
     def run_client(self):
-        asyncio.get_event_loop().run_until_complete(self.__hello_client(self.address))
-        asyncio.get_event_loop().run_forever()
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(self.__hello_client(self.address, loop))
+        loop.close()
 
-    async def __hello_client(self, address):
+    async def __hello_client(self, address, loop):
             async with websockets.connect(
                     address) as websocket:
                 greeting = await websocket.recv()
                 print(f"< {greeting}")
-                while 1:
-                    name = input("Type:")
-                    name = json.dumps({'type': name})
-                    await websocket.send(name)
-                    print(f"> {name}")
+                try:
+                    while 1:
+                        name = input("Type:")
+                        name = json.dumps({'type': name})
+                        await websocket.send(name)
+                        print(f"> {name}")
 
-                    response = await websocket.recv()
-                    print(f"< {response}")
+                        response = await websocket.recv()
+                        print(f"< {response}")
+                except KeyboardInterrupt:
+                    exit(0)
 
 
 peer = Client(sys.argv[1], sys.argv[2])

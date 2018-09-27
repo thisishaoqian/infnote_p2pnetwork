@@ -1,4 +1,7 @@
 import asyncio
+import pathlib
+import ssl
+
 import websockets
 import logging
 from uuid import uuid4
@@ -50,7 +53,8 @@ class Peer:
         self.handlers = {
             'PING': self.notify_pong,
             'HELLO': self.notify_handshaking,
-            'STATUS': self.notify_status
+            'GET_STATUS': self.notify_status,
+            'GET_ADDR': self.notify_addr_broadcast
         }
 
     def __init_node_id(self):
@@ -66,22 +70,26 @@ class Peer:
     async def notify_handshaking(self, websocket, data):
         if self.peers:
             message = handshaking_event(self.protocol_version, self.client_version, self.server_port, self.my_id)
-            await asyncio.wait([peer.send(message) for peer in self.peers])
+            await websocket.send(message)
+
+    async def notify_addr_broadcast(self, websocket, data):
+        message = addr_event(self.server_host, self.server_port)
+        await asyncio.wait([peer.send(message) for peer in self.peers])
 
     async def notify_status(self, websocket, data):
         if self.peers:
             message = status_event()
-            await asyncio.wait([peer.send(message) for peer in self.peers])
+            await websocket.send(message)
 
     async def notify_ping(self, websocket, data):
         if self.peers:
             message = ping_event()
-            await asyncio.wait([peer.send(message) for peer in self.peers])
+            await websocket.send(message)
 
     async def notify_pong(self, websocket, data):
         if self.peers:
             message = pong_event()
-            await asyncio.wait([peer.send(message) for peer in self.peers])
+            await websocket.send(message)
 
     async def register_node(self, websocket):
         self.peers.add(websocket)
@@ -90,7 +98,27 @@ class Peer:
     def unregister_node(self, websocket):
         self.peers.remove(websocket)
 
-    async def __loop_server(self, websocket, path):
+    async def consumer(self, message, websocket):
+        msg_type = None
+        try:
+            data = json.loads(message)
+            print(data)
+            if 'type' in data:
+                if data['type']:
+                    msg_type = data['type'].upper()
+                if msg_type not in self.handlers:
+                    logging.error(
+                        "unsupported event: {}", data)
+                else:
+                    self.__debug('Handling peer msg: %s: %s' % (msg_type, data))
+                    await self.handlers[msg_type](websocket, data)
+            else:
+                self.__debug("Need a 'type' key in every json message")
+        except ValueError:
+            self.__debug("Message need to respect Json Format")
+
+    async def __consumer_handler(self, websocket, path):
+
         self.__debug('path: %s, peers_number: %s' % (path, len(self.peers)))
         self.__debug('Current Server Listening: %s (%s:%d)'
                      % (self.my_id, self.server_host, self.server_port))
@@ -98,50 +126,29 @@ class Peer:
         await self.register_node(websocket)
         try:
             async for message in websocket:
-                msg_type = None
-                try:
-                    data = json.loads(message)
-                    print(data)
-                    if 'type' in data:
-                        if data['type']:
-                            msg_type = data['type'].upper()
-                        if msg_type not in self.handlers:
-                            logging.error(
-                                "unsupported event: {}", data)
-                        else:
-                            self.__debug('Handling peer msg: %s: %s' % (msg_type, data))
-                            await self.handlers[msg_type](websocket, data)
-                    else:
-                        self.__debug("Need a 'type' key in every json message")
-                except ValueError:
-                    self.__debug("Message need to respect Json Format")
+                await self.consumer(message, websocket)
         finally:
             self.unregister_node(websocket)
 
-    def run_server(self):
+    def run_peer(self):
 
             self.__debug('Server started: %s (%s:%d)'
                          % (self.my_id, self.server_host, self.server_port))
             self.__debug('handlers size %s' % len(self.handlers))
-            self.server_socket = websockets.serve(self.__loop_server, self.server_host, self.server_port)
+
+            # ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            # ssl_context.load_cert_chain(
+            # pathlib.Path(__file__).with_name('localhost.pem'))
+
+            self.server_socket = websockets.serve(self.__consumer_handler, self.server_host, self.server_port)
             loop = asyncio.get_event_loop()
             try:
                 loop.run_until_complete(self.server_socket)
                 loop.run_forever()
             except KeyboardInterrupt:
                 print("Closing the server")
-                loop.close()
-
-    async def __hello_server(self, websocket, path):
-        name = await websocket.recv()
-        print(f"< {name}")
-
-        greeting = f"Hello {name}!"
-
-        await websocket.send(greeting)
-        print(f"> {greeting}")
+            loop.close()
 
 
-peer = Peer(8080, 5)
-# Need to split in two thread to handle client and server at the same time
-peer.run_server()
+peer = Peer(8081, 5)
+peer.run_peer()
