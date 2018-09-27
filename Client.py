@@ -1,6 +1,7 @@
 import asyncio
 import sys
 import websockets
+import json
 
 
 class Client:
@@ -12,15 +13,18 @@ class Client:
         asyncio.get_event_loop().run_forever()
 
     async def __hello_client(self, address):
-        async with websockets.connect(
-                address) as websocket:
-            name = input("What's your name? ")
+            async with websockets.connect(
+                    address) as websocket:
+                greeting = await websocket.recv()
+                print(f"< {greeting}")
+                while 1:
+                    name = input("Type:")
+                    name = json.dumps({'type': name})
+                    await websocket.send(name)
+                    print(f"> {name}")
 
-            await websocket.send(name)
-            print(f"> {name}")
-
-            greeting = await websocket.recv()
-            print(f"< {greeting}")
+                    response = await websocket.recv()
+                    print(f"< {response}")
 
 
 peer = Client(sys.argv[1], sys.argv[2])
