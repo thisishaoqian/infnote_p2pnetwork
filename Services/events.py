@@ -10,13 +10,5 @@ def status_event():
     return json.dumps({'type': 'Status', 'genesisHash': "0000"})
 
 
-def ping_event():
-    return json.dumps({'type': 'ping'})
-
-
-def pong_event():
-    return json.dumps({'type': 'pong'})
-
-
 def addr_event(host, port):
     return json.dumps({'type': 'addr', 'host': host, 'port': str(port)})

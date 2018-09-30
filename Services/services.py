@@ -7,7 +7,7 @@ def thread_debug( msg ):
     print("[%s] %s" % (str(threading.currentThread().getName()), msg))
 
 
-def get_ip():
+def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         # doesn't even have to be reachable
