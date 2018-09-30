@@ -18,7 +18,7 @@ class App:
             if node is None or len(node) == 0:
                 print("Address it not valid, no peer connected...")
             else:
-                self.peer.add_node_discovery(node)
+                self.peer.addr_manager.add_node_console(node)
         if len(sys.argv) > 1:
             self.peer.server_port = int(sys.argv[1])
         self.peer.run_peer()

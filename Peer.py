@@ -1,5 +1,6 @@
 import asyncio
 import signal
+
 import websockets
 import logging
 from uuid import uuid4
@@ -8,6 +9,7 @@ import _thread
 from PeerConnection import PeerConnection
 from Services.services import *
 from Services.events import *
+from AddressManager import AddressManager
 
 logging.basicConfig()
 
@@ -20,7 +22,7 @@ class Peer:
         self.debug = True
         self.shutdown = False
         self.server_socket = None
-        self.peer_to_discover = None
+        self.addr_manager = AddressManager()
 
         # If not supplied, the server_port variable will be set up to 4242, will be define to be unique in the future
         if server_port:
@@ -60,9 +62,6 @@ class Peer:
         # Hash Table of connected peers
         self.peers = set()
 
-        # List of peers address
-        self.peers_addr = set()
-
         # Handlers initialisation, basically the type of message accepted associated to the functions
         self.__init_handlers()
 
@@ -71,6 +70,7 @@ class Peer:
     def __init_handlers(self):
         self.handlers = {}
         self.handlers = {
+            'PING': self.notify_ping,
             'HELLO': self.notify_handshaking,
             'GET_STATUS': self.notify_status,
             'GET_ADDR': self.notify_addr_broadcast
@@ -90,9 +90,6 @@ class Peer:
 
     def get_peers(self):
         return self.peers
-
-    def add_node_discovery(self, entry):
-        self.peer_to_discover = entry
 
     def __debug(self, msg):
         if self.debug:
@@ -115,11 +112,12 @@ class Peer:
             await websocket.send(message)
 
     async def notify_ping(self, websocket, data):
+        print("Sending Ping")
         pong_waiter = await websocket.ping()
         await pong_waiter
 
     async def notify_pong(self, websocket, data):
-        await websocket.pong()
+        await websocket.pong("pong")
 
     def register_node(self, websocket):
         self.peers.add(websocket)
@@ -190,8 +188,9 @@ class Peer:
         ip_port_peer = str(ip_port_peer)
         async with websockets.connect('ws://'+ip_port_peer) as websocket:
             host, port = websocket.remote_address
+            self.addr_manager.fill_peers_db(str(host)+':'+str(port))
             connected_peer = PeerConnection(None, host, port, websocket)
-            message = json.dumps({'type': "Hello"})
+            message = handshaking_event(self.protocol_version, self.client_version, self.server_port, self.my_id)
             await connected_peer.send_data_json(message)
             await connected_peer.rcv_data_json()
             try:
@@ -205,14 +204,6 @@ class Peer:
                     print(f"< {response}")
             except KeyboardInterrupt:
                 exit(0)
-
-    def peers_discovery(self):
-        # This function will try different peer discovery methods
-        self.__debug('Peer Discovery')
-        if self.peer_to_discover is not None:
-            self.peers_addr.add(self.peer_to_discover)
-        self.__debug('List of current peer to connect to:')
-        print(self.peers_addr)
 
     def run_server(self):
         self.__debug("Run Server !")
@@ -232,8 +223,8 @@ class Peer:
         # This restores the default Ctrl+C signal handler, which just kills the process
         signal.signal(signal.SIGINT, signal.SIG_DFL)
         _thread.start_new_thread(self.run_server, ())
-        self.peers_discovery()
-        if len(self.peers_addr):
-            _thread.start_new_thread(self.run_client, (list(self.peers_addr)[0], ))
+        self.addr_manager.peers_discovery()
+        if len(self.addr_manager.peers_known):
+            _thread.start_new_thread(self.run_client, (list(self.addr_manager.peers_known)[0], ))
         while self.shutdown is False:
             pass
