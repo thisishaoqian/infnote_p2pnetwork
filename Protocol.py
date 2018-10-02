@@ -30,8 +30,13 @@ def check_status(message):
     # Check Blockchain Information
     return msg_json
 
+
 def status_event():
     return json.dumps({'type': 'Status', 'genesisHash': "0000"})
+
+
+def get_addr_event():
+    return json.dumps({'type': 'GET_ADDR'})
 
 
 def addr_event(host, port):

@@ -7,6 +7,7 @@ class PeerConnection:
         self.sock = sock
         self.protocol_version = protocol_version
         self.client_id = client_id
+        self.produce_actions = []
 
     def close(self):
         pass

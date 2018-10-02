@@ -1,11 +1,9 @@
 import asyncio
-import signal
 import json
 
 import websockets
 import logging
 from uuid import uuid4
-import _thread
 
 from PeerConnection import PeerConnection
 from Services import services
@@ -107,9 +105,9 @@ class Peer:
         await Actions.notify_hello(self, connected_peer)
 
     async def notify_addr_broadcast(self, connected_peer, data):
-        if self.peers_co:
-            message = Protocol.addr_event(self.server_host, self.server_port)
-            await asyncio.wait([peer.sock.send(message) for peer in self.peers_co])
+        print("Will Send an answer to Get_Addr")
+        message = Protocol.addr_event(self.server_host, self.server_port)
+        await connected_peer.send_data_json(message)
 
     async def consume_status(self, connected_peer, data):
         status = Actions.handle_status(self, connected_peer, data)
@@ -202,14 +200,24 @@ class Peer:
             if not result_handshaking:
                 await connected_peer.sock.close()
                 exit(0)
+            self.register_node(connected_peer)
             self.__debug("Successful Connection / Handshaking with:"+connected_peer.host+':'+str(connected_peer.port)+' !')
             self.addr_manager.fill_peers_db(str(host)+':'+str(port))
             while 1:
+                if connected_peer.produce_actions:
+                    if connected_peer.produce_actions[0] == 'GET_ADDR':
+                        print("SEND A GET_ADDR in CONNECT_AND_SEND")
+                        await connected_peer.send_data_json(Protocol.get_addr_event())
+                        print("WAITING FOR GET_ADDR response in CONNECT_AND_SEND")
+                        response = await connected_peer.rcv_data_json()
+                        print("Response after a GET_ADDR:")
+                        print(response)
+                        connected_peer.produce_actions.pop(0)
                 '''name = input("Type:")
                 name = json.dumps({'type': name})
                 await websocket.send(name)
                 print(f"> {name}")
-
+            
                 response = await websocket.recv()
                 print(f"< {response}")'''
 
@@ -230,13 +238,3 @@ class Peer:
         asyncio.get_event_loop().run_until_complete(self.connect_and_send(ip_port_peer))
         self.__debug("Loop Connect and Send over")
 
-    def run_peer(self):
-        self.__debug('Peer Running...')
-        # This restores the default Ctrl+C signal handler, which just kills the process
-        signal.signal(signal.SIGINT, signal.SIG_DFL)
-        _thread.start_new_thread(self.run_server, ())
-        self.addr_manager.peers_discovery()
-        if len(self.addr_manager.peers_known):
-            _thread.start_new_thread(self.run_client, (list(self.addr_manager.peers_known)[0], ))
-        while self.shutdown is False:
-            pass
