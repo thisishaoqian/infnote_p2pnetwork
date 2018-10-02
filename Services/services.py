@@ -1,5 +1,6 @@
 import threading
 import socket
+import json
 
 
 def thread_debug( msg ):
@@ -18,3 +19,11 @@ def get_local_ip():
     finally:
         s.close()
     return ip
+
+
+def is_json(myjson):
+    try:
+        json_object = json.loads(myjson)
+    except ValueError:
+        return False
+    return True

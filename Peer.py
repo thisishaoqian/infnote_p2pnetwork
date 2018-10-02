@@ -1,5 +1,6 @@
 import asyncio
 import signal
+import json
 
 import websockets
 import logging
@@ -7,8 +8,9 @@ from uuid import uuid4
 import _thread
 
 from PeerConnection import PeerConnection
-from Services.services import *
-from Services.events import *
+from Services import services
+import Actions
+import Protocol
 from AddressManager import AddressManager
 
 logging.basicConfig()
@@ -17,8 +19,8 @@ logging.basicConfig()
 class Peer:
 
     # Beginning of Constructor
-    def __init__(self, server_port=None, max_peers=None, my_id=None, server_host=None,
-                 protocol_version=None, client_version=None):
+    def __init__(self, server_port=None, max_peers=None, my_id=None, server_host=None, client_version=None,
+                 protocol_version=None):
         self.debug = True
         self.shutdown = False
         self.server_socket = None
@@ -60,7 +62,7 @@ class Peer:
             self.__init_node_id()
 
         # Hash Table of connected peers
-        self.peers = set()
+        self.peers_co = set()
 
         # Handlers initialisation, basically the type of message accepted associated to the functions
         self.__init_handlers()
@@ -71,8 +73,8 @@ class Peer:
         self.handlers = {}
         self.handlers = {
             'PING': self.notify_ping,
-            'HELLO': self.notify_handshaking,
-            'GET_STATUS': self.notify_status,
+            'HELLO': self.consume_hello,
+            'STATUS': self.consume_status,
             'GET_ADDR': self.notify_addr_broadcast
         }
 
@@ -86,49 +88,55 @@ class Peer:
         self.server_socket = websockets.serve(self.__consumer_handler, self.server_host, self.server_port)
 
     def __init_server_host(self):
-        self.server_host = get_local_ip()
+        self.server_host = services.get_local_ip()
 
     def get_peers(self):
-        return self.peers
+        return self.peers_co
 
     def __debug(self, msg):
         if self.debug:
-            thread_debug(msg)
+            services.thread_debug(msg)
 
-    async def notify_handshaking(self, websocket, data):
-        if self.peers:
-            message = handshaking_event(self.protocol_version, self.client_version, self.server_port, self.my_id)
-            self.__debug("Notify Handshaking")
-            await websocket.send(message)
+    async def consume_hello(self, connected_peer, data):
+        print("Consume Hello data:")
+        print(data)
+        hello = Actions.handle_hello(self, connected_peer, data)
+        # Throw Custom Exception instead and print error message
+        if not hello:
+            return False
+        await Actions.notify_hello(self, connected_peer)
 
-    async def notify_addr_broadcast(self, websocket, data):
-        if self.peers:
-            message = addr_event(self.server_host, self.server_port)
-            await asyncio.wait([peer.send(message) for peer in self.peers])
+    async def notify_addr_broadcast(self, connected_peer, data):
+        if self.peers_co:
+            message = Protocol.addr_event(self.server_host, self.server_port)
+            await asyncio.wait([peer.sock.send(message) for peer in self.peers_co])
 
-    async def notify_status(self, websocket, data):
-        if self.peers:
-            message = status_event()
-            await websocket.send(message)
+    async def consume_status(self, connected_peer, data):
+        status = Actions.handle_status(self, connected_peer, data)
+        # Throw Custom Exception instead and print error message
+        if not status:
+            return False
+        await Actions.notify_status(connected_peer)
 
-    async def notify_ping(self, websocket, data):
+    async def notify_ping(self, connected_peer, data):
         print("Sending Ping")
-        pong_waiter = await websocket.ping()
+        pong_waiter = await connected_peer.sock.ping()
         await pong_waiter
 
-    async def notify_pong(self, websocket, data):
-        await websocket.pong("pong")
+    async def notify_pong(self, connected_peer, data):
+        await connected_peer.sock.pong("pong")
 
-    def register_node(self, websocket):
-        self.peers.add(websocket)
+    def register_node(self, peer_connected):
+        self.peers_co.add(peer_connected)
 
-    def unregister_node(self, websocket):
-        self.peers.remove(websocket)
+    def unregister_node(self, peer_disconnected):
+        self.peers_co.remove(peer_disconnected)
 
-    async def consumer(self, message, websocket):
+    async def consumer(self, message, connected_peer):
         msg_type = None
         try:
             data = json.loads(message)
+            print("Main Consumer data:")
             print(data)
             if 'type' in data:
                 if data['type']:
@@ -137,21 +145,22 @@ class Peer:
                     logging.error(
                         "unsupported event: {}", data)
                 else:
-                    self.__debug('Handling peer msg: %s: %s' % (msg_type, data))
-                    await self.handlers[msg_type](websocket, data)
+                    self.__debug('Handling peer msg: %s: %s' % (msg_type, message))
+                    await self.handlers[msg_type](connected_peer, message)
             else:
                 self.__debug("Need a 'type' key in every json message")
         except ValueError:
             self.__debug("Message need to respect Json Format")
 
     async def __consumer_handler(self, websocket, path):
-        self.register_node(websocket)
+        host, port = websocket.remote_address
+        connected_peer = PeerConnection(None, host, port, websocket, None)
         self.__debug('Consumer Handler !')
         try:
             async for message in websocket:
-                await self.consumer(message, websocket)
+                await self.consumer(message, connected_peer)
         finally:
-            self.unregister_node(websocket)
+            self.unregister_node(connected_peer)
 
     '''async def __producer_handler(self, websocket, path):
         self.__debug("Producer Handler !")
@@ -188,24 +197,25 @@ class Peer:
         ip_port_peer = str(ip_port_peer)
         async with websockets.connect('ws://'+ip_port_peer) as websocket:
             host, port = websocket.remote_address
-            self.addr_manager.fill_peers_db(str(host)+':'+str(port))
-            connected_peer = PeerConnection(None, host, port, websocket)
-            message = handshaking_event(self.protocol_version, self.client_version, self.server_port, self.my_id)
-            await connected_peer.send_data_json(message)
-            await connected_peer.rcv_data_json()
-            try:
-                while 1:
-                    name = input("Type:")
-                    name = json.dumps({'type': name})
-                    await websocket.send(name)
-                    print(f"> {name}")
-
-                    response = await websocket.recv()
-                    print(f"< {response}")
-            except KeyboardInterrupt:
+            connected_peer = PeerConnection(None, host, port, websocket, None)
+            result_handshaking = await Actions.produce_handshaking(self, connected_peer)
+            if not result_handshaking:
+                await connected_peer.sock.close()
                 exit(0)
+            self.__debug("Successful Connection / Handshaking with:"+connected_peer.host+':'+str(connected_peer.port)+' !')
+            self.addr_manager.fill_peers_db(str(host)+':'+str(port))
+            while 1:
+                '''name = input("Type:")
+                name = json.dumps({'type': name})
+                await websocket.send(name)
+                print(f"> {name}")
+
+                response = await websocket.recv()
+                print(f"< {response}")'''
 
     def run_server(self):
+        # Add a handler producer / consumer to handle mutliple asynchronous tasks in the same socket
+        # See Handler above
         self.__debug("Run Server !")
         asyncio.set_event_loop(asyncio.new_event_loop())
         self.__init_server_socket()
@@ -213,6 +223,8 @@ class Peer:
         asyncio.get_event_loop().run_forever()
 
     def run_client(self, ip_port_peer):
+        # Add a handler producer / consumer to handle mutliple asynchronous tasks in the same socket
+        # See Handler above
         self.__debug("Run Client !")
         asyncio.set_event_loop(asyncio.new_event_loop())
         asyncio.get_event_loop().run_until_complete(self.connect_and_send(ip_port_peer))

@@ -1,6 +1,4 @@
-import socket
 import sys
-
 import Peer
 
 

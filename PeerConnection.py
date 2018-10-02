@@ -1,10 +1,12 @@
 class PeerConnection:
 
-    def __init__(self, peer_id, host, port, sock):
+    def __init__(self, peer_id, host, port, sock, protocol_version=None, client_id=None):
         self.peer_id = peer_id
         self.host = host
         self.port = port
         self.sock = sock
+        self.protocol_version = protocol_version
+        self.client_id = client_id
 
     def close(self):
         pass
@@ -14,14 +16,12 @@ class PeerConnection:
 
     async def send_data_json(self, msg):
         await self.sock.send(msg)
-        print("Data sent!")
 
     def rcv_data(self):
         pass
 
     async def rcv_data_json(self):
         response = await self.sock.recv()
-        print("Data received"+response)
         return response
 
     def __make_msg(self, msg_type, msg_data):
