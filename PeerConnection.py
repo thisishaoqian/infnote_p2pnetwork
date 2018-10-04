@@ -1,6 +1,6 @@
 class PeerConnection:
 
-    def __init__(self, peer_id, host, port, sock, protocol_version=None, client_id=None):
+    def __init__(self, peer_id, host, port, sock, protocol_version=None, client_id=None, server_address=None):
         self.peer_id = peer_id
         self.host = host
         self.port = port
@@ -8,6 +8,7 @@ class PeerConnection:
         self.protocol_version = protocol_version
         self.client_id = client_id
         self.produce_actions = []
+        self.server_listening = server_address
 
     def close(self):
         pass

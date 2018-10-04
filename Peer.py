@@ -1,5 +1,6 @@
 import asyncio
 import json
+import socket
 
 import websockets
 import logging
@@ -17,8 +18,9 @@ logging.basicConfig()
 class Peer:
 
     # Beginning of Constructor
-    def __init__(self, server_port=None, max_peers=None, my_id=None, server_host=None, client_version=None,
+    def __init__(self, app, server_port=None, max_peers=None, my_id=None, server_host=None, client_version=None,
                  protocol_version=None):
+        self.app = app
         self.debug = True
         self.shutdown = False
         self.server_socket = None
@@ -73,7 +75,7 @@ class Peer:
             'PING': self.notify_ping,
             'HELLO': self.consume_hello,
             'STATUS': self.consume_status,
-            'GET_ADDR': self.notify_addr_broadcast
+            'GET_ADDR': self.consume_get_addr
         }
 
     def __init_node_id(self):
@@ -104,7 +106,7 @@ class Peer:
             return False
         await Actions.notify_hello(self, connected_peer)
 
-    async def notify_addr_broadcast(self, connected_peer, data):
+    async def consume_get_addr(self, connected_peer, data):
         print("Will Send an answer to Get_Addr")
         message = Protocol.addr_event(self.server_host, self.server_port)
         await connected_peer.send_data_json(message)
@@ -129,6 +131,13 @@ class Peer:
 
     def unregister_node(self, peer_disconnected):
         self.peers_co.remove(peer_disconnected)
+
+    def get_peer_by_address(self, address_and_port):
+        host, port = address_and_port.split(':')
+        for peer in self.peers_co:
+            if peer.host == host and str(peer.port) == port:
+                return peer
+        return None
 
     async def consumer(self, message, connected_peer):
         msg_type = None
@@ -157,69 +166,34 @@ class Peer:
         try:
             async for message in websocket:
                 await self.consumer(message, connected_peer)
+        except websockets.ConnectionClosed:
+            print("Connection Closed handled!")
         finally:
-            self.unregister_node(connected_peer)
-
-    '''async def __producer_handler(self, websocket, path):
-        self.__debug("Producer Handler !")
-
-        while True:
-            message = handshaking_event(self.protocol_version, self.client_version, self.server_port, self.my_id)
-            await websocket.send(self.my_id)
-
-    async def handler(self, websocket, path):
-        await self.register_node(websocket)
-        self.__debug('path: %s, peers_number: %s' % (path, len(self.peers)))
-        self.__debug('Current Server Listening: %s (%s:%d)'
-                     % (self.my_id, self.server_host, self.server_port))
-        self.__debug('Listening for Connections on the open socket...')
-
-        try:
-            # Implement logic here.
-
-            consumer_task = asyncio.ensure_future(
-                self.__consumer_handler(websocket, path))
-            producer_task = asyncio.ensure_future(
-                self.__producer_handler(websocket, path))
-            done, pending = await asyncio.wait(
-                [consumer_task, producer_task],
-                return_when=asyncio.FIRST_EXCEPTION,
-            )
-            for task in pending:
-                task.cancel()
-        finally:
-            # Unregister.
-            self.unregister_node(websocket)'''
+            pass
+            # Maybe need to register this node - Depending on the use cases -
+            # In this case we need to unregister the node when the discussion is over
+            # self.unregister_node(connected_peer)
 
     async def connect_and_send(self, ip_port_peer):
         ip_port_peer = str(ip_port_peer)
-        async with websockets.connect('ws://'+ip_port_peer) as websocket:
-            host, port = websocket.remote_address
-            connected_peer = PeerConnection(None, host, port, websocket, None)
-            result_handshaking = await Actions.produce_handshaking(self, connected_peer)
-            if not result_handshaking:
-                await connected_peer.sock.close()
-                exit(0)
-            self.register_node(connected_peer)
-            self.__debug("Successful Connection / Handshaking with:"+connected_peer.host+':'+str(connected_peer.port)+' !')
-            self.addr_manager.fill_peers_db(str(host)+':'+str(port))
-            while 1:
-                if connected_peer.produce_actions:
-                    if connected_peer.produce_actions[0] == 'GET_ADDR':
-                        print("SEND A GET_ADDR in CONNECT_AND_SEND")
-                        await connected_peer.send_data_json(Protocol.get_addr_event())
-                        print("WAITING FOR GET_ADDR response in CONNECT_AND_SEND")
-                        response = await connected_peer.rcv_data_json()
-                        print("Response after a GET_ADDR:")
-                        print(response)
-                        connected_peer.produce_actions.pop(0)
-                '''name = input("Type:")
-                name = json.dumps({'type': name})
-                await websocket.send(name)
-                print(f"> {name}")
-            
-                response = await websocket.recv()
-                print(f"< {response}")'''
+        try:
+            async with websockets.connect('ws://'+ip_port_peer) as websocket:
+                host, port = websocket.remote_address
+                connected_peer = PeerConnection(None, host, port, websocket, None)
+                await Actions.produce_handshaking(self, connected_peer)
+                self.register_node(connected_peer)
+                self.__debug("Successful Connection / Handshaking with:"+connected_peer.host+':'+str(connected_peer.port)+' !')
+                self.addr_manager.fill_peers_db(str(host)+':'+str(port))
+                while 1:
+                    if connected_peer.produce_actions:
+                        # try catch any exceptions - Connection Closed is basically handled in the finally
+                        if connected_peer.produce_actions[0] == 'GET_ADDR':
+                            await Actions.produce_get_addr(self, connected_peer)
+                            connected_peer.produce_actions.pop(0)
+        except (websockets.AbortHandshake, websockets.InvalidHandshake, websockets.InvalidMessage, socket.gaierror):
+            print("Handshaking error - Peer:"+ip_port_peer+" Not connected")
+        except websockets.ConnectionClosed:
+            self.unregister_node(self.get_peer_by_address(ip_port_peer))
 
     def run_server(self):
         # Add a handler producer / consumer to handle mutliple asynchronous tasks in the same socket

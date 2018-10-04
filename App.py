@@ -3,13 +3,12 @@ import Peer
 import signal
 import _thread
 import json
-import asyncio
 
 
 class App:
 
     def __init__(self):
-        self.peer = Peer.Peer()
+        self.peer = Peer.Peer(self)
 
     def run(self):
         node = None
@@ -28,14 +27,6 @@ class App:
             self.peer.server_port = int(sys.argv[1])
         self.run_peer()
 
-    async def send_to_peer(self):
-        await list(self.peer.peers_co)[0].send_data_json(json.dumps({'type': 'GET_ADDR'}))
-
-    async def receive_from_peer(self):
-        response = await list(self.peer.peers_co)[0].rcv_data_json()
-        print("Response From Get ADDR:")
-        print(response)
-
     def run_peer(self):
         # This restores the default Ctrl+C signal handler, which just kills the process
         signal.signal(signal.SIGINT, signal.SIG_DFL)
@@ -46,6 +37,7 @@ class App:
             print(self.peer.shutdown)
         while self.peer.shutdown is False:
             action = input("Type:")
+            # Client logic in the future : Example Send message on this channel
             if action == "SEND":
                 print("Will Send A GET_ADDR")
                 list(self.peer.peers_co)[0].produce_actions.append('GET_ADDR')
