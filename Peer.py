@@ -24,7 +24,7 @@ class Peer:
         self.debug = True
         self.shutdown = False
         self.server_socket = None
-        self.addr_manager = AddressManager()
+        self.addr_manager = AddressManager("peers.dat")
 
         # If not supplied, the server_port variable will be set up to 4242, will be define to be unique in the future
         if server_port:
@@ -95,7 +95,7 @@ class Peer:
         self.server_host = services.get_local_ip()
 
     def get_peers(self):
-        return self.peers_co
+        return self.addr_manager.peers_known
 
     def __debug(self, msg):
         if self.debug:
@@ -211,11 +211,10 @@ class Peer:
         asyncio.get_event_loop().run_forever()
 
     def run_client(self, ip_port_peer):
-        # Add a handler producer / consumer to handle mutliple asynchronous tasks in the same socket
+        # Add a handler producer / consumer to handle multiple asynchronous tasks in the same socket
         # See Handler above
         self.__debug("Run Client !")
         asyncio.set_event_loop(asyncio.new_event_loop())
-        # Important !! Need to connect to a certain number of known peers, address manager must handle this
         asyncio.get_event_loop().run_until_complete(self.connect_and_send(ip_port_peer))
         self.__debug("Loop Connect and Send over")
 
