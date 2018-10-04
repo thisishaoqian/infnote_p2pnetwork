@@ -70,12 +70,16 @@ class Peer:
     # End of Constructor
 
     def __init_handlers(self):
-        self.handlers = {}
-        self.handlers = {
+        self.handlers_consum = {}
+        self.handlers_consum = {
             'PING': self.notify_ping,
             'HELLO': self.consume_hello,
             'STATUS': self.consume_status,
             'GET_ADDR': self.consume_get_addr
+        }
+        self.handlers_prod = {}
+        self.handlers_prod = {
+            'GET_ADDR': Actions.produce_get_addr
         }
 
     def __init_node_id(self):
@@ -84,7 +88,7 @@ class Peer:
     def __init_server_socket(self):
         self.__debug('Server started: %s (%s:%d)'
                      % (self.my_id, self.server_host, self.server_port))
-        self.__debug('handlers size %s' % len(self.handlers))
+        self.__debug('handlers consum size %s' % len(self.handlers_consum))
         self.server_socket = websockets.serve(self.__consumer_handler, self.server_host, self.server_port)
 
     def __init_server_host(self):
@@ -107,6 +111,11 @@ class Peer:
         await Actions.notify_hello(self, connected_peer)
 
     async def consume_get_addr(self, connected_peer, data):
+        # Really important !!
+        # The notify addr will send the list of the known peers + the socket open of the current Peer in first position.
+        # As a result, we can only register the node connected from the client part
+        # So basically, the client part will only receive:
+        # answer to request, the Handshaking process, a hearthbeat and the Get_addr
         print("Will Send an answer to Get_Addr")
         message = Protocol.addr_event(self.server_host, self.server_port)
         await connected_peer.send_data_json(message)
@@ -140,22 +149,16 @@ class Peer:
         return None
 
     async def consumer(self, message, connected_peer):
-        msg_type = None
+        # Need to think the way to handle data which is not json (Block sending later)
         try:
             data = json.loads(message)
-            print("Main Consumer data:")
-            print(data)
-            if 'type' in data:
-                if data['type']:
-                    msg_type = data['type'].upper()
-                if msg_type not in self.handlers:
-                    logging.error(
-                        "unsupported event: {}", data)
-                else:
-                    self.__debug('Handling peer msg: %s: %s' % (msg_type, message))
-                    await self.handlers[msg_type](connected_peer, message)
+            if 'type' in data and data['type'] and data['type'].upper() in self.handlers_consum:
+                msg_type = data['type'].upper()
+                self.__debug('Handling peer msg: %s: %s' % (msg_type, message))
+                await self.handlers_consum[msg_type](connected_peer, message)
             else:
                 self.__debug("Need a 'type' key in every json message")
+                logging.error("unsupported event: {}", data)
         except ValueError:
             self.__debug("Message need to respect Json Format")
 
@@ -174,6 +177,14 @@ class Peer:
             # In this case we need to unregister the node when the discussion is over
             # self.unregister_node(connected_peer)
 
+    async def __producer_handler(self, connected_peer):
+        # Keep the connection open until error or one of the peer disconnection
+        while 1:
+            if connected_peer.produce_actions:
+                # try catch any exceptions - Connection Closed is basically handled in the finally
+                await self.handlers_prod[connected_peer.produce_actions[0]](self, connected_peer)
+                connected_peer.produce_actions.pop(0)
+
     async def connect_and_send(self, ip_port_peer):
         ip_port_peer = str(ip_port_peer)
         try:
@@ -184,12 +195,7 @@ class Peer:
                 self.register_node(connected_peer)
                 self.__debug("Successful Connection / Handshaking with:"+connected_peer.host+':'+str(connected_peer.port)+' !')
                 self.addr_manager.fill_peers_db(str(host)+':'+str(port))
-                while 1:
-                    if connected_peer.produce_actions:
-                        # try catch any exceptions - Connection Closed is basically handled in the finally
-                        if connected_peer.produce_actions[0] == 'GET_ADDR':
-                            await Actions.produce_get_addr(self, connected_peer)
-                            connected_peer.produce_actions.pop(0)
+                await self.__producer_handler(connected_peer)
         except (websockets.AbortHandshake, websockets.InvalidHandshake, websockets.InvalidMessage, socket.gaierror):
             print("Handshaking error - Peer:"+ip_port_peer+" Not connected")
         except websockets.ConnectionClosed:
@@ -209,6 +215,7 @@ class Peer:
         # See Handler above
         self.__debug("Run Client !")
         asyncio.set_event_loop(asyncio.new_event_loop())
+        # Important !! Need to connect to a certain number of known peers, address manager must handle this
         asyncio.get_event_loop().run_until_complete(self.connect_and_send(ip_port_peer))
         self.__debug("Loop Connect and Send over")
 

@@ -2,7 +2,6 @@ import sys
 import Peer
 import signal
 import _thread
-import json
 
 
 class App:
@@ -38,10 +37,18 @@ class App:
         while self.peer.shutdown is False:
             action = input("Type:")
             # Client logic in the future : Example Send message on this channel
-            if action == "SEND":
-                print("Will Send A GET_ADDR")
-                list(self.peer.peers_co)[0].produce_actions.append('GET_ADDR')
+            self.app_client(action)
             pass
+
+    def app_client(self, action):
+        # App client logic
+        if action == "GET_ADDR" and len(self.peer.peers_co) > 0:
+            self.broadcast_get_addr()
+
+    def broadcast_get_addr(self):
+        print("Will Send A GET_ADDR")
+        for peer_connected in self.peer.peers_co:
+            peer_connected.produce_actions.append('GET_ADDR')
 
 
 if __name__ == '__main__':

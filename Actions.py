@@ -29,7 +29,7 @@ def handle_addr(peer, peer_connected, data):
     addr = Protocol.check_addr(data)
     if addr is None:
         return False
-    peer_connected.server_listening = data['host']+':'+data['port']
+    peer_connected.server_listening = addr['host']+':'+addr['port']
     return True
 
 
